@@ -8,6 +8,11 @@ app.get('/api/time', function(req, res) {
     res.send(new Date().toISOString());
 });
 
+// Simple endpoint that returns an about message
+app.get('/api/about', function(req, res) {
+    res.send('mail-scanner A utility to scan mailboxes for security issues');
+});
+
 // Serve static files
 app.use('/', express.static(path.join(__dirname, '/www')));
 
