@@ -26,7 +26,6 @@ fs.readFile(CREDENTIALS_PATH, (err, content) => {
 
     // Authorize a client with credentials, then call the Gmail API.
     authorize(JSON.parse(content), getUsersEmail);
-    authorize(JSON.parse(content), listLabels);
     authorize(JSON.parse(content), listMessages);
 });
 
@@ -36,17 +35,24 @@ fs.readFile(CREDENTIALS_PATH, (err, content) => {
  * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
  */
 async function getUsersEmail(auth) {
-    const gmail = google.gmail({ version: 'v1', auth });
-    gmail.users.getProfile(
-        {
+    const gmail = google.gmail({
+        version: 'v1',
+        auth,
+    });
+
+    var request;
+    try {
+        request = await gmail.users.getProfile({
             userId: 'me',
-        },
-        (err, { data }) => {
-            if (err) return console.log('The API returned an error: ' + err);
-            console.log(
-                `mail-scanner is now processing account: ${data.emailAddress}`
-            );
-        }
+        });
+    } catch (err) {
+        console.log('FAIL', err.response.data.error);
+        // TODO: if transient error, retry
+        return;
+    }
+
+    console.log(
+        `mail-scanner is now processing account: ${request.data.emailAddress}`
     );
 }
 
@@ -104,32 +110,6 @@ function getNewToken(oAuth2Client, callback) {
 }
 
 /**
- * Lists the labels in the user's account.
- *
- * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
- */
-function listLabels(auth) {
-    const gmail = google.gmail({ version: 'v1', auth });
-    gmail.users.labels.list(
-        {
-            userId: 'me',
-        },
-        (err, res) => {
-            if (err) return console.log('The API returned an error: ' + err);
-            const labels = res.data.labels;
-            if (labels.length) {
-                console.log('Labels:');
-                labels.forEach((label) => {
-                    console.log(`- ${label.name}`);
-                });
-            } else {
-                console.log('No labels found.');
-            }
-        }
-    );
-}
-
-/**
  * Lists the messages in the user's mailbox (including trash and spam).
  *
  * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
@@ -165,20 +145,24 @@ function listMessages(auth) {
  */
 async function scanMessageContents(auth, message) {
     const gmail = google.gmail({ version: 'v1', auth });
-    var request1 = await gmail.users.messages.get({
+
+    var request = await gmail.users.messages.get({
         userId: 'me',
         id: message.id,
     });
-    request1.data.payload.headers.forEach((header) => {
+
+    request.data.payload.headers.forEach((header) => {
         if (header.name === 'Subject') {
             message.subject = header.value;
         }
     });
     scanContent(message.subject, message);
-    var request = await gmail.users.threads.get({
+
+    request = await gmail.users.threads.get({
         userId: 'me',
         id: message.threadId,
     });
+
     request.data.messages.forEach((thread) => {
         if (
             thread.payload.mimeType === 'text/html' ||
