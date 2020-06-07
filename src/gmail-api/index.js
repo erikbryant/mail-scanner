@@ -2,22 +2,53 @@
 
 const fs = require('fs');
 const readline = require('readline');
+
+const Base64 = require('js-base64').Base64;
 const { google } = require('googleapis');
 
 // If modifying these scopes, delete token.json.
 const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
+
 // The file token.json stores the user's access and refresh tokens, and is
 // created automatically when the authorization flow completes for the first
 // time.
 const TOKEN_PATH = 'token.json';
+const CREDENTIALS_PATH = 'credentials.json';
 
 // Load client secrets from a local file.
-fs.readFile('credentials.json', (err, content) => {
-    if (err) return console.log('Error loading client secret file:', err);
+fs.readFile(CREDENTIALS_PATH, (err, content) => {
+    if (err)
+        return console.log(
+            'Error loading client secret file:',
+            CREDENTIALS_PATH,
+            err
+        );
+
     // Authorize a client with credentials, then call the Gmail API.
+    authorize(JSON.parse(content), getUsersEmail);
     authorize(JSON.parse(content), listLabels);
     authorize(JSON.parse(content), listMessages);
 });
+
+/**
+ * Get the user's email address from the auth object.
+ *
+ * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
+ */
+async function getUsersEmail(auth) {
+    const gmail = await google.gmail({ version: 'v1', auth });
+    await gmail.users.getProfile(
+        {
+            userId: 'me',
+        },
+        (err, { data }) => {
+            if (err) return console.log('The API returned an error: ' + err);
+            console.log(
+                `mail-scanner is now processing account: ${data.emailAddress}`
+            );
+        }
+    );
+}
 
 /**
  * Create an OAuth2 client with the given credentials, and then execute the
@@ -114,9 +145,46 @@ function listMessages(auth) {
             if (res.data.resultSizeEstimate) {
                 const messages = res.data.messages;
                 console.log('Inbox messages:');
-                messages.forEach((message) => {
+                messages.forEach(async (message) => {
                     console.log(message);
+                    var request = await gmail.users.threads.get({
+                        userId: 'me',
+                        id: message.threadId,
+                    });
+                    console.log(
+                        'Messages in this thread:',
+                        request.data.messages.length
+                    );
+                    request.data.messages.forEach((thread) => {
+                        if (
+                            thread.payload.mimeType === 'text/html' ||
+                            thread.payload.mimeType === 'text/plain'
+                        ) {
+                            console.log(
+                                Base64.decode(thread.payload.body.data).slice(
+                                    0,
+                                    100
+                                )
+                            );
+                        } else {
+                            console.log(
+                                'Found a mime type I do not know how to handle:',
+                                thread.payload.mimeType
+                            );
+                            console.log(thread.snippet);
+                            if (thread.payload.body.data) {
+                                console.log(
+                                    thread.payload.body.data.slice(0, 100)
+                                );
+                            } else {
+                                console.log('<Thread data is empty>');
+                            }
+                        }
+                        console.log();
+                    });
+                    console.log();
                 });
+                console.log();
             } else {
                 console.log('No messages found.');
             }

@@ -39,6 +39,7 @@
   },
   "dependencies": {
     "express": "^4.17.1",
-    "googleapis": "^52.1.0"
+    "googleapis": "^52.1.0",
+    "js-base64": "^2.5.2"
   }
 }
