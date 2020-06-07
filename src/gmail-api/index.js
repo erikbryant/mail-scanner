@@ -36,8 +36,8 @@ fs.readFile(CREDENTIALS_PATH, (err, content) => {
  * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
  */
 async function getUsersEmail(auth) {
-    const gmail = await google.gmail({ version: 'v1', auth });
-    await gmail.users.getProfile(
+    const gmail = google.gmail({ version: 'v1', auth });
+    gmail.users.getProfile(
         {
             userId: 'me',
         },
@@ -130,64 +130,93 @@ function listLabels(auth) {
 }
 
 /**
- * Lists the messages in the user's mailbox.
+ * Lists the messages in the user's mailbox (including trash and spam).
  *
  * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
  */
 function listMessages(auth) {
     const gmail = google.gmail({ version: 'v1', auth });
+
     gmail.users.messages.list(
         {
             userId: 'me',
+            includeSpamTrash: true,
         },
         (err, res) => {
             if (err) return console.log('The API returned an error: ' + err);
             if (res.data.resultSizeEstimate) {
                 const messages = res.data.messages;
-                console.log('Inbox messages:');
                 messages.forEach(async (message) => {
-                    console.log(message);
-                    var request = await gmail.users.threads.get({
-                        userId: 'me',
-                        id: message.threadId,
-                    });
-                    console.log(
-                        'Messages in this thread:',
-                        request.data.messages.length
-                    );
-                    request.data.messages.forEach((thread) => {
-                        if (
-                            thread.payload.mimeType === 'text/html' ||
-                            thread.payload.mimeType === 'text/plain'
-                        ) {
-                            console.log(
-                                Base64.decode(thread.payload.body.data).slice(
-                                    0,
-                                    100
-                                )
-                            );
-                        } else {
-                            console.log(
-                                'Found a mime type I do not know how to handle:',
-                                thread.payload.mimeType
-                            );
-                            console.log(thread.snippet);
-                            if (thread.payload.body.data) {
-                                console.log(
-                                    thread.payload.body.data.slice(0, 100)
-                                );
-                            } else {
-                                console.log('<Thread data is empty>');
-                            }
-                        }
-                        console.log();
-                    });
-                    console.log();
+                    scanMessageContents(auth, message);
                 });
-                console.log();
             } else {
                 console.log('No messages found.');
             }
         }
     );
+}
+
+/**
+ * Scans a single message for suspicious content.
+ *
+ * @async
+ * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
+ * @param {Object} The id / threadId of the message to scan.
+ */
+async function scanMessageContents(auth, message) {
+    const gmail = google.gmail({ version: 'v1', auth });
+    var request1 = await gmail.users.messages.get({
+        userId: 'me',
+        id: message.id,
+    });
+    request1.data.payload.headers.forEach((header) => {
+        if (header.name === 'Subject') {
+            message.subject = header.value;
+        }
+    });
+    scanContent(message.subject, message);
+    var request = await gmail.users.threads.get({
+        userId: 'me',
+        id: message.threadId,
+    });
+    request.data.messages.forEach((thread) => {
+        if (
+            thread.payload.mimeType === 'text/html' ||
+            thread.payload.mimeType === 'text/plain'
+        ) {
+            scanContent(Base64.decode(thread.payload.body.data), message);
+        }
+        scanParts(thread.payload.parts, message);
+    });
+}
+
+/**
+ * Scans a list of message parts for suspicious content.
+ *
+ * @param {Object[]} A list of message parts.
+ * @param {Object} The message identifiers.
+ */
+function scanParts(parts, message) {
+    if (!parts) {
+        return;
+    }
+
+    parts.forEach((part) => {
+        if (part.mimeType === 'text/html' || part.mimeType === 'text/plain') {
+            scanContent(Base64.decode(part.body.data), message);
+        }
+        scanParts(part.parts, message);
+    });
+}
+
+/**
+ * Scans a single piece of text for suspicious content.
+ *
+ * @param {string} A string to scan for suspicious content.
+ * @param {Object} The message identifiers.
+ */
+function scanContent(content, message) {
+    if (content.includes('http://') || content.includes('https://')) {
+        console.log('WARN: content contains links!', message);
+    }
 }
