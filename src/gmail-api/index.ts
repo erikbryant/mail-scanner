@@ -1,11 +1,9 @@
-// From https://developers.google.com/gmail/api/quickstart/nodejs
-
-import fs from 'fs';
-import readline from 'readline';
-import StatsD from 'hot-shots';
+const fs = require('fs');
+const readline = require('readline');
 
 const Base64 = require('js-base64').Base64;
 const { google } = require('googleapis');
+const StatsD = require('hot-shots');
 
 const dogstatsd = new StatsD();
 
@@ -253,7 +251,7 @@ function scanParts(parts: any[], message: any) {
  * @param {string} A string to scan for suspicious content.
  * @param {Object} The message identifiers.
  */
-function scanContent(content: string | string[], message: any) {
+function scanContent(content: string, message: any) {
     if (content.includes('http://') || content.includes('https://')) {
         console.log('WARN: content contains links!', message);
         dogstatsd.increment('content.suspicious.link', [
