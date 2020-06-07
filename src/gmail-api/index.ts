@@ -13,15 +13,15 @@ const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 // The file token.json stores the user's access and refresh tokens, and is
 // created automatically when the authorization flow completes for the first
 // time.
-const TOKEN_PATH = 'token.json';
-const CREDENTIALS_PATH = 'credentials.json';
+const TOKEN_FILE = 'token.json';
+const CREDENTIALS_FILE = 'credentials.json';
 
 // Load client secrets from a local file.
-fs.readFile(CREDENTIALS_PATH, (err: any, content: Buffer) => {
+fs.readFile(CREDENTIALS_FILE, (err: any, content: Buffer) => {
     if (err)
         return console.log(
             'Error loading client secret file:',
-            CREDENTIALS_PATH,
+            CREDENTIALS_FILE,
             err
         );
 
@@ -51,7 +51,7 @@ function authorize(
     );
 
     // Check if we have previously stored a token.
-    fs.readFile(TOKEN_PATH, (err: any, token: Buffer) => {
+    fs.readFile(TOKEN_FILE, (err: any, token: Buffer) => {
         if (err) return getNewToken(oAuth2Client, callback);
         oAuth2Client.setCredentials(JSON.parse(token.toString()));
         callback(oAuth2Client);
@@ -92,9 +92,9 @@ function getNewToken(
             if (err) return console.error('Error retrieving access token', err);
             oAuth2Client.setCredentials(token);
             // Store the token to disk for later program executions
-            fs.writeFile(TOKEN_PATH, JSON.stringify(token), (err: any) => {
+            fs.writeFile(TOKEN_FILE, JSON.stringify(token), (err: any) => {
                 if (err) return console.error(err);
-                console.log('Token stored to', TOKEN_PATH);
+                console.log('Token stored to', TOKEN_FILE);
             });
             callback(oAuth2Client);
         });
@@ -154,10 +154,24 @@ async function listMessages(auth: any) {
             includeSpamTrash: true,
         },
         (
-            err: string,
+            err: any,
             res: { data: { resultSizeEstimate: any; messages: any } }
         ) => {
-            if (err) return console.log('The API returned an error: ' + err);
+            if (err) {
+                dogstatsd.increment('gmail.users.messages.list.fails');
+                if (!err.response) {
+                    return console.log('listMessages():', err);
+                }
+                const code = err.response.data.error.code;
+                dogstatsd.increment('gmail.users.messages.list.fails.code', [
+                    `code:${code}`,
+                ]);
+                return console.log(
+                    'listMessages():',
+                    err.response.data.error.message,
+                    code
+                );
+            }
             dogstatsd.gauge('message.count', res.data.resultSizeEstimate, 1, [
                 `account:${email}`,
             ]);
