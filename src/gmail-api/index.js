@@ -30,33 +30,6 @@ fs.readFile(CREDENTIALS_PATH, (err, content) => {
 });
 
 /**
- * Get the user's email address from the auth object.
- *
- * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
- */
-async function getUsersEmail(auth) {
-    const gmail = google.gmail({
-        version: 'v1',
-        auth,
-    });
-
-    var request;
-    try {
-        request = await gmail.users.getProfile({
-            userId: 'me',
-        });
-    } catch (err) {
-        console.log('FAIL', err.response.data.error);
-        // TODO: if transient error, retry
-        return;
-    }
-
-    console.log(
-        `mail-scanner is now processing account: ${request.data.emailAddress}`
-    );
-}
-
-/**
  * Create an OAuth2 client with the given credentials, and then execute the
  * given callback function.
  * @param {Object} credentials The authorization client credentials.
@@ -107,6 +80,72 @@ function getNewToken(oAuth2Client, callback) {
             callback(oAuth2Client);
         });
     });
+}
+
+/**
+ * Get the user's email address from the auth object.
+ *
+ * @param {Object} param
+ * @param {google.auth.OAuth2} param.auth An authorized OAuth2 client.
+ * @param {number} param.retryLimit Maximum number of times to retry (min 0, max 4).
+ *
+ * @returns {string} The user's email address, or '' if it cannot be retrieved.
+ */
+async function getUsersEmailWithRetry(param) {
+    const MIN_RETRIES = 0;
+    const MAX_RETRIES = 4;
+
+    // Clamp retryLimit
+    param.retryLimit = Math.max(param.retryLimit, MIN_RETRIES);
+    param.retryLimit = Math.min(param.retryLimit, MAX_RETRIES);
+
+    const gmail = google.gmail({
+        version: 'v1',
+        auth: param.auth,
+    });
+
+    try {
+        const request = await gmail.users.getProfile({
+            userId: 'me',
+        });
+        console.log('account email:', request.data.emailAddress);
+        return request.data.emailAddress;
+    } catch (err) {
+        if (!err.response) {
+            console.log(err);
+            return '';
+        }
+        const code = err.response.data.error.code;
+        console.log(
+            'getUsersEmailWithRetry():',
+            err.response.data.error.message,
+            code
+        );
+
+        // If this is a quota error, retry. See GMail usage limits:
+        // https://developers.google.com/gmail/api/v1/reference/quota
+        if (param.retryLimit > 0 && (code === 403 || code === 429)) {
+            const timeout = Math.pow(2, MAX_RETRIES - param.retryLimit) * 1000;
+            setTimeout(getUsersEmailWithRetry, timeout, {
+                auth: param.auth,
+                retryLimit: param.retryLimit - 1,
+            });
+        }
+    }
+
+    return '';
+}
+
+/**
+ * Get the user's email address from the auth object.
+ *
+ * @async
+ * @param {google.auth.OAuth2} An authorized OAuth2 client.
+ *
+ * @returns {string} The user's email address, or '' if it cannot be retrieved.
+ */
+async function getUsersEmail(auth) {
+    return await getUsersEmailWithRetry({ auth, retryLimit: 5 });
 }
 
 /**
