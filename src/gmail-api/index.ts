@@ -1,10 +1,13 @@
 // From https://developers.google.com/gmail/api/quickstart/nodejs
 
-const fs = require('fs');
-const readline = require('readline');
+import fs from 'fs';
+import readline from 'readline';
+import StatsD from 'hot-shots';
 
 const Base64 = require('js-base64').Base64;
 const { google } = require('googleapis');
+
+const dogstatsd = new StatsD();
 
 // If modifying these scopes, delete token.json.
 const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
@@ -16,7 +19,7 @@ const TOKEN_PATH = 'token.json';
 const CREDENTIALS_PATH = 'credentials.json';
 
 // Load client secrets from a local file.
-fs.readFile(CREDENTIALS_PATH, (err, content) => {
+fs.readFile(CREDENTIALS_PATH, (err: any, content: Buffer) => {
     if (err)
         return console.log(
             'Error loading client secret file:',
@@ -25,8 +28,7 @@ fs.readFile(CREDENTIALS_PATH, (err, content) => {
         );
 
     // Authorize a client with credentials, then call the Gmail API.
-    authorize(JSON.parse(content), getUsersEmail);
-    authorize(JSON.parse(content), listMessages);
+    authorize(JSON.parse(content.toString()), listMessages);
 });
 
 /**
@@ -35,7 +37,14 @@ fs.readFile(CREDENTIALS_PATH, (err, content) => {
  * @param {Object} credentials The authorization client credentials.
  * @param {function} callback The callback to call with the authorized client.
  */
-function authorize(credentials, callback) {
+function authorize(
+    credentials: {
+        web: { client_secret: any; client_id: any; redirect_uris: any };
+    },
+    callback: { (auth: any): void; (auth: any): void; (arg0: any): void }
+) {
+    dogstatsd.increment('authentication.attempts');
+
     const { client_secret, client_id, redirect_uris } = credentials.web;
     const oAuth2Client = new google.auth.OAuth2(
         client_id,
@@ -44,9 +53,9 @@ function authorize(credentials, callback) {
     );
 
     // Check if we have previously stored a token.
-    fs.readFile(TOKEN_PATH, (err, token) => {
+    fs.readFile(TOKEN_PATH, (err: any, token: Buffer) => {
         if (err) return getNewToken(oAuth2Client, callback);
-        oAuth2Client.setCredentials(JSON.parse(token));
+        oAuth2Client.setCredentials(JSON.parse(token.toString()));
         callback(oAuth2Client);
     });
 }
@@ -57,7 +66,19 @@ function authorize(credentials, callback) {
  * @param {google.auth.OAuth2} oAuth2Client The OAuth2 client to get token for.
  * @param {getEventsCallback} callback The callback for the authorized client.
  */
-function getNewToken(oAuth2Client, callback) {
+function getNewToken(
+    oAuth2Client: {
+        generateAuthUrl: (arg0: {
+            access_type: string;
+            scope: string[];
+        }) => any;
+        getToken: (arg0: any, arg1: (err: any, token: any) => void) => void;
+        setCredentials: (arg0: any) => void;
+    },
+    callback: (arg0: any) => void
+) {
+    dogstatsd.increment('authentication.newToken');
+
     const authUrl = oAuth2Client.generateAuthUrl({
         access_type: 'offline',
         scope: SCOPES,
@@ -67,13 +88,13 @@ function getNewToken(oAuth2Client, callback) {
         input: process.stdin,
         output: process.stdout,
     });
-    rl.question('Enter the code from that page here: ', (code) => {
+    rl.question('Enter the code from that page here: ', (code: any) => {
         rl.close();
-        oAuth2Client.getToken(code, (err, token) => {
+        oAuth2Client.getToken(code, (err: any, token: any) => {
             if (err) return console.error('Error retrieving access token', err);
             oAuth2Client.setCredentials(token);
             // Store the token to disk for later program executions
-            fs.writeFile(TOKEN_PATH, JSON.stringify(token), (err) => {
+            fs.writeFile(TOKEN_PATH, JSON.stringify(token), (err: any) => {
                 if (err) return console.error(err);
                 console.log('Token stored to', TOKEN_PATH);
             });
@@ -85,67 +106,37 @@ function getNewToken(oAuth2Client, callback) {
 /**
  * Get the user's email address from the auth object.
  *
- * @param {Object} param
- * @param {google.auth.OAuth2} param.auth An authorized OAuth2 client.
- * @param {number} param.retryLimit Maximum number of times to retry (min 0, max 4).
- *
- * @returns {string} The user's email address, or '' if it cannot be retrieved.
- */
-async function getUsersEmailWithRetry(param) {
-    const MIN_RETRIES = 0;
-    const MAX_RETRIES = 4;
-
-    // Clamp retryLimit
-    param.retryLimit = Math.max(param.retryLimit, MIN_RETRIES);
-    param.retryLimit = Math.min(param.retryLimit, MAX_RETRIES);
-
-    const gmail = google.gmail({
-        version: 'v1',
-        auth: param.auth,
-    });
-
-    try {
-        const request = await gmail.users.getProfile({
-            userId: 'me',
-        });
-        console.log('account email:', request.data.emailAddress);
-        return request.data.emailAddress;
-    } catch (err) {
-        if (!err.response) {
-            console.log(err);
-            return '';
-        }
-        const code = err.response.data.error.code;
-        console.log(
-            'getUsersEmailWithRetry():',
-            err.response.data.error.message,
-            code
-        );
-
-        // If this is a quota error, retry. See GMail usage limits:
-        // https://developers.google.com/gmail/api/v1/reference/quota
-        if (param.retryLimit > 0 && (code === 403 || code === 429)) {
-            const timeout = Math.pow(2, MAX_RETRIES - param.retryLimit) * 1000;
-            setTimeout(getUsersEmailWithRetry, timeout, {
-                auth: param.auth,
-                retryLimit: param.retryLimit - 1,
-            });
-        }
-    }
-
-    return '';
-}
-
-/**
- * Get the user's email address from the auth object.
- *
  * @async
  * @param {google.auth.OAuth2} An authorized OAuth2 client.
  *
  * @returns {string} The user's email address, or '' if it cannot be retrieved.
  */
-async function getUsersEmail(auth) {
-    return await getUsersEmailWithRetry({ auth, retryLimit: 5 });
+async function getUsersEmail(auth: any): Promise<string> {
+    const gmail = google.gmail({
+        version: 'v1',
+        auth,
+    });
+
+    try {
+        dogstatsd.increment('gmail.users.getProfile.calls');
+        const request = await gmail.users.getProfile({
+            userId: 'me',
+        });
+        return request.data.emailAddress;
+    } catch (err) {
+        dogstatsd.increment('gmail.users.getProfile.fails');
+        if (!err.response) {
+            console.log(err);
+            return '';
+        }
+        const code = err.response.data.error.code;
+        dogstatsd.increment('gmail.users.getProfile.fails.code', [
+            `code:${code}`,
+        ]);
+        console.log('getUsersEmail():', err.response.data.error.message, code);
+    }
+
+    return '';
 }
 
 /**
@@ -153,19 +144,29 @@ async function getUsersEmail(auth) {
  *
  * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
  */
-function listMessages(auth) {
+async function listMessages(auth: any) {
     const gmail = google.gmail({ version: 'v1', auth });
 
+    const email = await getUsersEmail(auth);
+
+    dogstatsd.increment('gmail.users.messages.list.calls');
     gmail.users.messages.list(
         {
             userId: 'me',
             includeSpamTrash: true,
         },
-        (err, res) => {
+        (
+            err: string,
+            res: { data: { resultSizeEstimate: any; messages: any } }
+        ) => {
             if (err) return console.log('The API returned an error: ' + err);
+            dogstatsd.gauge('message.count', res.data.resultSizeEstimate, 1, [
+                `account:${email}`,
+            ]);
             if (res.data.resultSizeEstimate) {
                 const messages = res.data.messages;
-                messages.forEach(async (message) => {
+                messages.forEach(async (message: any) => {
+                    message.email = email;
                     scanMessageContents(auth, message);
                 });
             } else {
@@ -182,7 +183,10 @@ function listMessages(auth) {
  * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
  * @param {Object} The id / threadId of the message to scan.
  */
-async function scanMessageContents(auth, message) {
+async function scanMessageContents(
+    auth: any,
+    message: { email: string; id: string; subject: string; threadId: string }
+) {
     const gmail = google.gmail({ version: 'v1', auth });
 
     var request = await gmail.users.messages.get({
@@ -190,11 +194,13 @@ async function scanMessageContents(auth, message) {
         id: message.id,
     });
 
-    request.data.payload.headers.forEach((header) => {
-        if (header.name === 'Subject') {
-            message.subject = header.value;
+    request.data.payload.headers.forEach(
+        (header: { name: string; value: any }) => {
+            if (header.name === 'Subject') {
+                message.subject = header.value;
+            }
         }
-    });
+    );
     scanContent(message.subject, message);
 
     request = await gmail.users.threads.get({
@@ -202,15 +208,19 @@ async function scanMessageContents(auth, message) {
         id: message.threadId,
     });
 
-    request.data.messages.forEach((thread) => {
-        if (
-            thread.payload.mimeType === 'text/html' ||
-            thread.payload.mimeType === 'text/plain'
-        ) {
-            scanContent(Base64.decode(thread.payload.body.data), message);
+    request.data.messages.forEach(
+        (thread: {
+            payload: { mimeType: string; body: { data: any }; parts: any };
+        }) => {
+            if (
+                thread.payload.mimeType === 'text/html' ||
+                thread.payload.mimeType === 'text/plain'
+            ) {
+                scanContent(Base64.decode(thread.payload.body.data), message);
+            }
+            scanParts(thread.payload.parts, message);
         }
-        scanParts(thread.payload.parts, message);
-    });
+    );
 }
 
 /**
@@ -219,17 +229,22 @@ async function scanMessageContents(auth, message) {
  * @param {Object[]} A list of message parts.
  * @param {Object} The message identifiers.
  */
-function scanParts(parts, message) {
+function scanParts(parts: any[], message: any) {
     if (!parts) {
         return;
     }
 
-    parts.forEach((part) => {
-        if (part.mimeType === 'text/html' || part.mimeType === 'text/plain') {
-            scanContent(Base64.decode(part.body.data), message);
+    parts.forEach(
+        (part: { mimeType: string; body: { data: any }; parts: any }) => {
+            if (
+                part.mimeType === 'text/html' ||
+                part.mimeType === 'text/plain'
+            ) {
+                scanContent(Base64.decode(part.body.data), message);
+            }
+            scanParts(part.parts, message);
         }
-        scanParts(part.parts, message);
-    });
+    );
 }
 
 /**
@@ -238,8 +253,12 @@ function scanParts(parts, message) {
  * @param {string} A string to scan for suspicious content.
  * @param {Object} The message identifiers.
  */
-function scanContent(content, message) {
+function scanContent(content: string | string[], message: any) {
     if (content.includes('http://') || content.includes('https://')) {
         console.log('WARN: content contains links!', message);
+        dogstatsd.increment('content.suspicious.link', [
+            `threadId:${message.threadId}`,
+            `account:${message.email}`,
+        ]);
     }
 }
