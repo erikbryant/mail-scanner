@@ -16,6 +16,7 @@ fs.readFile('credentials.json', (err, content) => {
     if (err) return console.log('Error loading client secret file:', err);
     // Authorize a client with credentials, then call the Gmail API.
     authorize(JSON.parse(content), listLabels);
+    authorize(JSON.parse(content), listMessages);
 });
 
 /**
@@ -92,6 +93,32 @@ function listLabels(auth) {
                 });
             } else {
                 console.log('No labels found.');
+            }
+        }
+    );
+}
+
+/**
+ * Lists the messages in the user's mailbox.
+ *
+ * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
+ */
+function listMessages(auth) {
+    const gmail = google.gmail({ version: 'v1', auth });
+    gmail.users.messages.list(
+        {
+            userId: 'me',
+        },
+        (err, res) => {
+            if (err) return console.log('The API returned an error: ' + err);
+            if (res.data.resultSizeEstimate) {
+                const messages = res.data.messages;
+                console.log('Inbox messages:');
+                messages.forEach((message) => {
+                    console.log(message);
+                });
+            } else {
+                console.log('No messages found.');
             }
         }
     );
