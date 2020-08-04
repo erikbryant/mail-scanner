@@ -2089,10 +2089,10 @@ homedir-polyfill@^1.0.1:
   dependencies:
     parse-passwd "^1.0.0"
 
-hot-shots@^7.5.0:
-  version "7.5.0"
-  resolved "https://registry.yarnpkg.com/hot-shots/-/hot-shots-7.5.0.tgz#a99b1ce177faad953e2161d6ede97ed052803413"
-  integrity sha512-5I+4KPo/jejEgNk8KvUep+gfQ8KcaaCSMabSoelilPEiRHs5Kk077UdV4YxE5g3rx3kHqytwZSsuoktB5lJ/pA==
+hot-shots@^7.7.1:
+  version "7.7.1"
+  resolved "https://registry.yarnpkg.com/hot-shots/-/hot-shots-7.7.1.tgz#e5404c3787bd0e9eb08cb2fb1bcf92b8f7cbf6a1"
+  integrity sha512-WNjpb1dELc14W6CsZptywM3BMHyzB9VodMzSXR6OrvsZ6uoRBjFDcCqCUjEDoBSJ3B2+RszbV4Jznrhz7/bHJA==
   optionalDependencies:
     unix-dgram "2.0.x"
 
